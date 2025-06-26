@@ -66,6 +66,8 @@ RezStatsBot is a Telegram bot designed to deliver up-to-date financial informati
    - Manage logs and save them into another file for better log and error management
 5. Ignore Offline Messages:
    - If a user send message to bot when it is offline , it'll ignore it for better experience
+6. Add Support Button:
+   - Now users can send messages to admins and admins can send messages to all of the users that have started the bot
 ## Dependencies 🛠
 
 The project dependencies are listed in `requirements.txt`. Install them using:

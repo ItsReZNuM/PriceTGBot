@@ -7,6 +7,8 @@ import datetime
 import convertdate.islamic
 import json
 import random
+import os
+from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,10 +21,30 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 logging.Formatter.converter = lambda *args: datetime.datetime.now(pytz.timezone('Asia/Tehran')).timetuple()
 
-TOKEN = "8079951314:AAE7CE3yMmkGHHwKuxTavqkfoYBxTYlx0ys"
+TOKEN = "Your Bot Token"
 bot = telebot.TeleBot(TOKEN)
-
 majid_api_key = '3jeourt8ixotegn:YqruOSVrFEKRki4sFZOw'
+blocked_users = set()
+ADMIN_USER_IDS = [123456789]  # Replace with actual admin user IDs
+USERS_FILE = "users.json"
+
+def save_user(user_id, username):
+    users = []
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, 'r', encoding='utf-8') as f:
+                users = json.load(f)
+        except json.JSONDecodeError:
+            logger.error("Failed to read users.json, starting with empty list")
+    
+    if not any(user['id'] == user_id for user in users):
+        users.append({"id": user_id, "username": username if username else "ندارد"})
+        try:
+            with open(USERS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(users, f, ensure_ascii=False, indent=4)
+            logger.info(f"Saved user {user_id} to users.json")
+        except Exception as e:
+            logger.error(f"Error saving user {user_id} to users.json: {e}")
 
 commands = [
     telebot.types.BotCommand("start", "شروع ربات"),
@@ -457,23 +479,33 @@ def start(message):
     if not is_message_valid(message):
         return
     user_id = message.chat.id
+    username = message.from_user.username
     logger.info(f"Start command received from user {user_id}")
-    bot.send_message(user_id, """
-سلام!🎊 به ربات اعلام نرخ خوش اومدی 😊
-این ربات برای نمایش نرخ ارز، طلا و سکه و ارزهای دیجیتال ساخته شده.
-.برای شروع ربات روی /start کلیک کن
-.در ضمن اگه به راهنمایی بیشتری نیاز داری روی /help کلیک کن
 
-امیدوارم لحظات خوبی داشته باشی! 🌟
-    """, parse_mode="Markdown")
+    save_user(user_id, username)
 
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     btn_currency = telebot.types.KeyboardButton("نرخ ارز 💲")
     btn_gold_coin = telebot.types.KeyboardButton("نرخ طلا و سکه 💰")
     btn_crypto = telebot.types.KeyboardButton("قیمت ارز دیجیتال 💸")
     btn_imp = telebot.types.KeyboardButton("قیمت های مهم ❗")
-    markup.add(btn_currency, btn_gold_coin, btn_crypto, btn_imp)
-    bot.send_message(user_id, "در ضمن میتونی با کلیک کردن روی گزینه های زیر ، نرخ های موردنظرت رو ببینی", reply_markup=markup)
+    
+    if user_id in ADMIN_USER_IDS:
+        btn_special = telebot.types.KeyboardButton("پیام همگانی 📢")
+    else:
+        btn_special = telebot.types.KeyboardButton("ارتباط با پشتیبانی 📞")
+    
+    markup.add(btn_currency, btn_gold_coin, btn_crypto, btn_imp, btn_special)
+    
+    bot.send_message(user_id, """
+سلام! 🎊 به ربات اعلام نرخ خوش اومدی 😊
+این ربات برای نمایش نرخ ارز، طلا و سکه و ارزهای دیجیتال ساخته شده.
+برای شروع ربات روی /start کلیک کن
+در ضمن اگه به راهنمایی بیشتری نیاز داری روی /help کلیک کن
+برای ارسال نظر یا مشکل، از دکمه ارتباط با پشتیبانی استفاده کن!
+
+امیدوارم لحظات خوبی داشته باشی! 🌟
+    """, parse_mode="Markdown", reply_markup=markup)
     logger.info(f"Keyboard menu sent to user {user_id}")
 
 @bot.message_handler(func=lambda message: message.text == "نرخ طلا و سکه 💰")
@@ -508,6 +540,135 @@ def crypto_nerkh(message):
     logger.info(f"Crypto price command received from user {user_id}")
     send_crypto_price(user_id)
 
+@bot.message_handler(func=lambda message: message.text == "ارتباط با پشتیبانی 📞")
+def handle_support(message):
+    if not is_message_valid(message):
+        return
+    user_id = message.chat.id  
+    if user_id in blocked_users:
+        bot.send_message(user_id, "شما توسط ادمین بلاک شدید و نمی‌تونید پیام بفرستید 😕")
+        return
+    if user_id in ADMIN_USER_IDS:
+        bot.send_message(user_id, "ادمین گرامی، شما نمی‌تونید به خودتون پیام پشتیبانی بفرستید! 😅")
+        return
+    logger.info(f"Support request initiated by user {user_id}")
+    bot.send_message(user_id, "لطفاً نظر یا پیام خودتون رو برای پشتیبانی بنویسید، ما به زودی بررسی می‌کنیم 😊")
+    bot.register_next_step_handler(message, forward_support_message)
+
+def forward_support_message(message):
+    if not is_message_valid(message):
+        return
+    user_id = message.chat.id
+    username = message.from_user.username
+    first_name = message.from_user.first_name
+    last_name = message.from_user.last_name or ""
+    full_name = f"{first_name} {last_name}".strip()
+
+    logger.info(f"Support message received from user {user_id}")
+    try:
+        bot.forward_message(ADMIN_USER_IDS[0], user_id, message.message_id)
+        keyboard = [
+            [InlineKeyboardButton("جوابشو بده ✅", callback_data=f"reply_{user_id}")],
+            [InlineKeyboardButton("بلاکه بلاک ❌", callback_data=f"block_{user_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        bot.send_message(
+            ADMIN_USER_IDS[0],
+            f"""
+📩 پیام پشتیبانی جدید:
+👤 نام: {full_name}
+🆔 آیدی: {user_id}
+📧 یوزرنیم: @{username if username else 'ندارد'}
+📝 پیام: (فوروارد شده)
+            """,
+            parse_mode="Markdown",
+            reply_markup=reply_markup
+        )
+        bot.send_message(user_id, "پیام شما به پشتیبانی ارسال شد ✅\nصبر کنید تا بررسی بشه")
+    except Exception as e:
+        logger.error(f"Error forwarding support message from user {user_id}: {e}")
+        bot.send_message(user_id, "❌ خطایی در ارسال پیام رخ داد. لطفاً دوباره تلاش کنید.")
+
+@bot.message_handler(func=lambda message: message.text == "پیام همگانی 📢")
+def handle_broadcast(message):
+    if not is_message_valid(message):
+        return
+    user_id = message.chat.id
+    if user_id not in ADMIN_USER_IDS:
+        bot.send_message(user_id, "این قابلیت فقط برای ادمین‌ها در دسترسه!")
+        return
+    logger.info(f"Broadcast initiated by admin {user_id}")
+    bot.send_message(user_id, "هر پیامی که می‌خوای بنویس تا برای همه کاربران ارسال بشه 📢")
+    bot.register_next_step_handler(message, send_broadcast)
+
+def send_broadcast(message):
+    if not is_message_valid(message):
+        return
+    user_id = message.chat.id
+    if user_id not in ADMIN_USER_IDS:
+        return
+    users = []
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, 'r', encoding='utf-8') as f:
+                users = json.load(f)
+        except json.JSONDecodeError:
+            logger.error("Failed to read users.json")
+            bot.send_message(user_id, "❌ خطا در خواندن لیست کاربران!")
+            return
+
+    success_count = 0
+    for user in users:
+        if user["id"] in blocked_users:
+            continue
+        try:
+            bot.send_message(user["id"], message.text)
+            success_count += 1
+        except Exception as e:
+            logger.warning(f"Failed to send broadcast to user {user['id']}: {e}")
+            continue
+    bot.send_message(user_id, f"پیام به {success_count} کاربر ارسال شد 📢")
+    logger.info(f"Broadcast sent to {success_count} users by admin {user_id}")
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback_query(call):
+    user_id = call.from_user.id
+    if user_id not in ADMIN_USER_IDS:
+        bot.answer_callback_query(call.id, "این قابلیت فقط برای ادمین‌ها در دسترسه!")
+        return
+    
+    action, target_user_id = call.data.split("_")
+    target_user_id = int(target_user_id)
+    
+    if action == "reply":
+        logger.info(f"Admin {user_id} initiated reply to user {target_user_id}")
+        bot.answer_callback_query(call.id)
+        bot.send_message(user_id, f"پاسخ خودتون رو برای کاربر {target_user_id} بنویسید:")
+        bot.register_next_step_handler(call.message, send_support_reply, target_user_id)
+    elif action == "block":
+        logger.info(f"Admin {user_id} blocked user {target_user_id}")
+        bot.answer_callback_query(call.id)
+        bot.send_message(target_user_id, "شما توسط ادمین بلاک شدید و نمی‌تونید پیام بفرستید 😕")
+        bot.edit_message_text(
+            text=f"کاربر با آیدی {target_user_id} بلاک شد.",
+            chat_id=user_id,
+            message_id=call.message.message_id
+        )
+
+def send_support_reply(message, reply_to_user_id):
+    if not is_message_valid(message):
+        return
+    user_id = message.chat.id
+    if user_id not in ADMIN_USER_IDS:
+        return
+    try:
+        bot.send_message(reply_to_user_id, f"پاسخ پشتیبانی: {message.text}")
+        bot.send_message(user_id, f"پاسخ شما به کاربر {reply_to_user_id} ارسال شد ✅")
+        logger.info(f"Support reply sent from admin {user_id} to user {reply_to_user_id}")
+    except Exception as e:
+        logger.error(f"Error sending support reply to user {reply_to_user_id}: {e}")
+        bot.send_message(user_id, "❌ خطایی در ارسال پاسخ رخ داد. احتمالاً کاربر ربات رو بلاک کرده.")
+
 @bot.message_handler(commands=['stats'])
 def stats(message):
     if not is_message_valid(message):
@@ -538,6 +699,7 @@ def help(message):
 - /start: شروع ربات
 - /stats: دریافت قیمت های مهم
 
+زمانی هم که وارد بخش ارز های دیجیتال شدی ، میتونی اسم نماد موردنظرت رو بنویسی یا حتی چندین تا نماد رو با کاما جدا کنی (مثلا: BTC,ETH,TON) و قیمت اون ها رو ببینی.
 برای دیدن قیمت‌ها، کافیه دستور /stats رو وارد کنی.
     """, parse_mode="Markdown")
     logger.info(f"Help response sent to user {user_id}")
@@ -547,6 +709,12 @@ def handle_crypto_symbols(message):
     if not is_message_valid(message):
         return
     user_id = message.chat.id
+    if not is_message_valid(message):
+        return
+    user_id = message.chat.id
+    if user_id in blocked_users:
+        bot.send_message(user_id, "شما توسط ادمین بلاک شدید و نمی‌تونید پیام بفرستید 😕")
+        return
     logger.info(f"Crypto symbols received from user {user_id}: {message.text}")
     
     # جدا کردن نمادها
