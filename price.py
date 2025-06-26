@@ -1,3 +1,6 @@
+# This script is a Telegram bot that provides currency, gold, and cryptocurrency prices.
+# Coded By 💖 By ReZNuM
+
 import logging
 import requests
 import pytz
@@ -10,6 +13,7 @@ import random
 import os
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+# Add Logging Configuration for better debugging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -21,6 +25,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 logging.Formatter.converter = lambda *args: datetime.datetime.now(pytz.timezone('Asia/Tehran')).timetuple()
 
+# The Variable Inforamtions 
 TOKEN = "Your Bot Token"
 bot = telebot.TeleBot(TOKEN)
 majid_api_key = '3jeourt8ixotegn:YqruOSVrFEKRki4sFZOw'
@@ -28,6 +33,7 @@ blocked_users = set()
 ADMIN_USER_IDS = [123456789]  # Replace with actual admin user IDs
 USERS_FILE = "users.json"
 
+# Function For Save users in a JSON File for later if you want to send the users that have started the bot
 def save_user(user_id, username):
     users = []
     if os.path.exists(USERS_FILE):
@@ -46,6 +52,7 @@ def save_user(user_id, username):
         except Exception as e:
             logger.error(f"Error saving user {user_id} to users.json: {e}")
 
+# Manage Command that have to start with (/ , slash) in Telegram UI
 commands = [
     telebot.types.BotCommand("start", "شروع ربات"),
     telebot.types.BotCommand("stats", "دریافت قیمت های مهم"),
@@ -53,6 +60,7 @@ commands = [
 ]
 bot.set_my_commands(commands)
 
+# Dictionary for daily Zekr (remembrance) based on the day of the week
 zekr_dict = {
     "Saturday": "☀️ یا رَبَّ الْعالَمین",
     "Sunday": "🌿 یا ذَالجَلالِ وَالإکرام",
@@ -63,6 +71,7 @@ zekr_dict = {
     "Friday": "🕌 اللّهُمَّ صَلِّ عَلی مُحَمَّد وَ آلِ مُحَمَّد"
 }
 
+# Persian weekdays and months
 weekdays_fa = {
     "Saturday": "شنبه",
     "Sunday": "یک‌شنبه",
@@ -73,6 +82,7 @@ weekdays_fa = {
     "Friday": "جمعه"
 }
 
+# Persian months
 persian_months = {
     1: "فروردین",
     2: "اردیبهشت",
@@ -88,6 +98,7 @@ persian_months = {
     12: "اسفند"
 }
 
+# Islamic months
 islamic_months = {
     1: "محرم",
     2: "صفر",
@@ -105,6 +116,7 @@ islamic_months = {
 
 bot_start_time = datetime.datetime.now(pytz.timezone('Asia/Tehran')).timestamp()
 
+# Verification Function That checks if a message in the offline time of the bot is send or not , if yes , ignore it !
 def is_message_valid(message):
     message_time = message.date
     logger.info(f"Checking message timestamp: {message_time} vs bot_start_time: {bot_start_time}")
@@ -113,6 +125,7 @@ def is_message_valid(message):
         return False
     return True
 
+# Functions For different form of numbers that is used in the code for better experience
 def format_number(number):
     if isinstance(number, str):
         return number
@@ -139,6 +152,7 @@ def format_number_decimal(number):
         return "{:,.3f}".format(number).replace(",", ",")
     return str(number)
 
+# Function for get daily hadithes from hadith.json file that it shows one in a whole day for every user
 def get_daily_hadith():
     try:
         with open('hadith.json', 'r', encoding='utf-8') as file:
@@ -171,6 +185,7 @@ def get_daily_hadith():
             'source': 'منبع مشخص نیست'
         }
 
+# Get currencies from api.majidapi.ir 
 def get_currency_prices():
     url = 'https://api.majidapi.ir/price/bonbast?token=' + majid_api_key
     try:
@@ -199,6 +214,7 @@ def get_currency_prices():
         logger.error(f"Error fetching currency prices: {e}")
         return None, None, None, None, None, None, None, None
 
+# Get Gold prices from api.majidapi.ir
 def get_gold_prices():
     url = 'https://api.majidapi.ir/price/bonbast?token=' + majid_api_key
     try:
@@ -231,6 +247,7 @@ def get_gold_prices():
         logger.error(f"Error fetching gold prices: {e}")
         return None, None, None, None, None
 
+# Get Crypto prices from api.majidapi.ir
 def get_crypto_prices(symbols=None):
     url = 'https://api.majidapi.ir/price/bitpin?token=' + majid_api_key
     try:
@@ -239,6 +256,7 @@ def get_crypto_prices(symbols=None):
         data = response.json()
         markets = data['result']
         
+        # check that user have given any symbol or not 
         if symbols is None:
             symbols = ['BTC', 'ETH', 'TON', 'NOT', 'TRX']
         
@@ -266,6 +284,7 @@ def get_crypto_prices(symbols=None):
         logger.error(f"Error fetching crypto prices: {e}")
         return None, None
 
+# Function For button (قیمت ارز)
 def send_currency_price(user_id):
     logger.info(f"Sending currency prices to user {user_id}")
     usd, euro, aud, cad, tryy, rub, aed, kwd = get_currency_prices()
@@ -309,6 +328,7 @@ def send_currency_price(user_id):
     bot.send_message(user_id, message, parse_mode="Markdown")
     logger.info(f"Currency prices sent to user {user_id}")
 
+# Function For button (قیمت طلا و سکه)
 def send_gold_price(user_id):
     logger.info(f"Sending gold prices to user {user_id}")
     gold_18ayar, gold_bahar, gold_nim, gold_rob, gold_gerami = get_gold_prices()
@@ -348,6 +368,7 @@ def send_gold_price(user_id):
     bot.send_message(user_id, message, parse_mode="Markdown")
     logger.info(f"Gold prices sent to user {user_id}")
 
+# Function For button (قیمت ارز دیجیتال)
 def send_crypto_price(user_id):
     logger.info(f"Sending crypto prices to user {user_id}")
     crypto_data, usdt_irt = get_crypto_prices()
@@ -413,6 +434,7 @@ def send_crypto_price(user_id):
     bot.send_message(user_id, message, parse_mode="Markdown")
     logger.info(f"Crypto prices sent to user {user_id}")
 
+# Function For button (قیمت های مهم)
 def send_price(user_id):
     logger.info(f"Sending important prices to user {user_id}")
     usd, euro, aud, cad, tryy, rub, aed, kwd = get_currency_prices()
@@ -474,6 +496,7 @@ def send_price(user_id):
     bot.send_message(user_id, message, parse_mode="Markdown")
     logger.info(f"Important prices sent to user {user_id}")
 
+# Handler of /start command 
 @bot.message_handler(commands=['start'])
 def start(message):
     if not is_message_valid(message):
@@ -507,6 +530,8 @@ def start(message):
 امیدوارم لحظات خوبی داشته باشی! 🌟
     """, parse_mode="Markdown", reply_markup=markup)
     logger.info(f"Keyboard menu sent to user {user_id}")
+
+### Handlers for InlineMarkup Buttons ###
 
 @bot.message_handler(func=lambda message: message.text == "نرخ طلا و سکه 💰")
 def gold_nerkh(message):
@@ -555,6 +580,7 @@ def handle_support(message):
     bot.send_message(user_id, "لطفاً نظر یا پیام خودتون رو برای پشتیبانی بنویسید، ما به زودی بررسی می‌کنیم 😊")
     bot.register_next_step_handler(message, forward_support_message)
 
+# Function For forward support messages
 def forward_support_message(message):
     if not is_message_valid(message):
         return
@@ -630,6 +656,7 @@ def send_broadcast(message):
     bot.send_message(user_id, f"پیام به {success_count} کاربر ارسال شد 📢")
     logger.info(f"Broadcast sent to {success_count} users by admin {user_id}")
 
+# Function That Admins use it for Answering back the messages of users
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback_query(call):
     user_id = call.from_user.id
@@ -717,7 +744,6 @@ def handle_crypto_symbols(message):
         return
     logger.info(f"Crypto symbols received from user {user_id}: {message.text}")
     
-    # جدا کردن نمادها
     symbols = [s.strip().upper() for s in message.text.split(',')]
     crypto_data, usdt_irt = get_crypto_prices(symbols)
     
