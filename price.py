@@ -11,6 +11,7 @@ import convertdate.islamic
 import json
 import random
 import os
+import time
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 # Add Logging Configuration for better debugging
@@ -30,6 +31,7 @@ TOKEN = "Your Bot Token"
 bot = telebot.TeleBot(TOKEN)
 majid_api_key = 'Get it from @MajidAPI'
 blocked_users = set()
+message_tracker = {}
 ADMIN_USER_IDS = [123456789]  # Replace with actual admin user IDs
 USERS_FILE = "users.json"
 
@@ -124,6 +126,31 @@ def is_message_valid(message):
         logger.warning(f"Ignoring old message from user {message.chat.id} sent at {message_time}")
         return False
     return True
+
+# Function for checking if a user is spamming or not 
+def check_rate_limit(user_id):
+    """بررسی محدودیت تعداد پیام‌ها و بلاک موقت"""
+    current_time = time.time()
+    
+    if user_id not in message_tracker:
+        message_tracker[user_id] = {'count': 0, 'last_time': current_time, 'temp_block_until': 0}
+    
+    if current_time < message_tracker[user_id]['temp_block_until']:
+        remaining = int(message_tracker[user_id]['temp_block_until'] - current_time)
+        return False, f"شما به دلیل ارسال پیام زیاد تا {remaining} ثانیه نمی‌تونید پیام بفرستید 😕"
+    
+    if current_time - message_tracker[user_id]['last_time'] > 1:
+        message_tracker[user_id]['count'] = 0
+        message_tracker[user_id]['last_time'] = current_time
+    
+    message_tracker[user_id]['count'] += 1
+    
+    if message_tracker[user_id]['count'] > 2:
+        message_tracker[user_id]['temp_block_until'] = current_time + 30
+        return False, "شما بیش از حد پیام فرستادید! تا ۳۰ ثانیه نمی‌تونید پیام بفرستید 😕"
+    
+    return True, ""
+
 
 # Functions For different form of numbers that is used in the code for better experience
 def format_number(number):
@@ -590,6 +617,11 @@ def forward_support_message(message):
     last_name = message.from_user.last_name or ""
     full_name = f"{first_name} {last_name}".strip()
 
+    allowed, error_message = check_rate_limit(user_id)
+    if not allowed:
+        bot.send_message(user_id, error_message)
+        return
+
     logger.info(f"Support message received from user {user_id}")
     try:
         bot.forward_message(ADMIN_USER_IDS[0], user_id, message.message_id)
@@ -650,6 +682,7 @@ def send_broadcast(message):
         try:
             bot.send_message(user["id"], message.text)
             success_count += 1
+            time.sleep(0.5)
         except Exception as e:
             logger.warning(f"Failed to send broadcast to user {user['id']}: {e}")
             continue
@@ -680,6 +713,26 @@ def handle_callback_query(call):
             text=f"کاربر با آیدی {target_user_id} بلاک شد.",
             chat_id=user_id,
             message_id=call.message.message_id
+        )
+    elif action == "unblock":
+        logger.info(f"Admin {user_id} unblocked user {target_user_id}")
+        blocked_users.discard(target_user_id)
+        bot.answer_callback_query(call.id)
+        bot.send_message(target_user_id, "شما از بلاک خارج شدید و حالا می‌تونید پیام بفرستید 😊")
+        bot.edit_message_text(
+            text=f"کاربر با آیدی {target_user_id} از بلاک خارج شد.",
+            chat_id=user_id,
+            message_id=call.message.message_id
+        )
+        keyboard = [
+            [InlineKeyboardButton("جوابشو بده ✅", callback_data=f"reply_{target_user_id}")],
+            [InlineKeyboardButton("بلاکه بلاک ❌", callback_data=f"block_{target_user_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        bot.edit_message_reply_markup(
+            chat_id=user_id,
+            message_id=call.message.message_id,
+            reply_markup=reply_markup
         )
 
 def send_support_reply(message, reply_to_user_id):
@@ -736,12 +789,15 @@ def handle_crypto_symbols(message):
     if not is_message_valid(message):
         return
     user_id = message.chat.id
-    if not is_message_valid(message):
-        return
-    user_id = message.chat.id
     if user_id in blocked_users:
         bot.send_message(user_id, "شما توسط ادمین بلاک شدید و نمی‌تونید پیام بفرستید 😕")
         return
+    
+    allowed, error_message = check_rate_limit(user_id)
+    if not allowed:
+        bot.send_message(user_id, error_message)
+        return
+    
     logger.info(f"Crypto symbols received from user {user_id}: {message.text}")
     
     symbols = [s.strip().upper() for s in message.text.split(',')]
