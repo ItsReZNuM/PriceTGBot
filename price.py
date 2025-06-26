@@ -1,3 +1,4 @@
+import logging
 import requests
 import pytz
 import telebot
@@ -6,7 +7,18 @@ import datetime
 import convertdate.islamic
 import json
 import random
- 
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler('bot.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+logging.Formatter.converter = lambda *args: datetime.datetime.now(pytz.timezone('Asia/Tehran')).timetuple()
+
 TOKEN = "Your Bot Token Here"
 bot = telebot.TeleBot(TOKEN)
 
@@ -69,14 +81,24 @@ islamic_months = {
     12: "ذوالحجه"
 }
 
+bot_start_time = datetime.datetime.now(pytz.timezone('Asia/Tehran')).timestamp()
+
+def is_message_valid(message):
+    message_time = message.date
+    logger.info(f"Checking message timestamp: {message_time} vs bot_start_time: {bot_start_time}")
+    if message_time < bot_start_time:
+        logger.warning(f"Ignoring old message from user {message.chat.id} sent at {message_time}")
+        return False
+    return True
+
 def format_number(number):
     if isinstance(number, str):
         return number
     elif isinstance(number, (int, float)):
         return "{:,.0f}".format(number).replace(",", ",")
     else:
-        return str(number)  
-    
+        return str(number)
+
 def format_number_ashar(number):
     return "{:,.2f}".format(number).replace(",", ",")
 
@@ -84,7 +106,6 @@ def format_number_not(number):
     return "{:,.5f}".format(number).replace(",", ",")
 
 def get_daily_hadith():
-    """انتخاب یک حدیث تصادفی برای هر روز"""
     try:
         with open('hadith.json', 'r', encoding='utf-8') as file:
             hadiths = json.load(file)
@@ -95,76 +116,36 @@ def get_daily_hadith():
         random.seed(seed)
         
         selected_hadith = random.choice(hadiths)
-        
+        logger.info(f"Daily hadith selected for {j_date}: {selected_hadith['farsi'][:50]}...")
         return {
             'farsi': selected_hadith.get('farsi', 'حدیث یافت نشد'),
             'naghlfa': selected_hadith.get('naghlfa', 'نقل‌کننده مشخص نیست').rstrip(':').strip(),
             'source': selected_hadith.get('source', 'منبع مشخص نیست')
         }
     except FileNotFoundError:
-        print("خطا: فایل hadith.json یافت نشد")
+        logger.error("File hadith.json not found")
         return {
             'farsi': 'حدیث یافت نشد',
             'naghlfa': 'نقل‌کننده مشخص نیست',
             'source': 'منبع مشخص نیست'
         }
     except Exception as e:
-        print(f"خطا در خواندن حدیث: {e}")
+        logger.error(f"Error reading hadith: {e}")
         return {
             'farsi': 'حدیث یافت نشد',
             'naghlfa': 'نقل‌کننده مشخص نیست',
             'source': 'منبع مشخص نیست'
         }
 
-
-def get_crypto_prices():
-    url = 'https://api.majidapi.ir/price/bitpin?token=' + majid_api_key
-    response = requests.get(url)
-    
-    if response.status_code == 200:
-        data = response.json()
-        markets = data['result']
-        
-        crypto_data = {
-            'BTC': {'price_irt': None, 'price_usdt': None, 'change': None},
-            'ETH': {'price_irt': None, 'price_usdt': None, 'change': None},
-            'TON': {'price_irt': None, 'price_usdt': None, 'change': None},
-            'NOT': {'price_irt': None, 'price_usdt': None, 'change': None},
-            'TRX': {'price_irt': None, 'price_usdt': None, 'change': None}
-        }
-        
-        usdt_irt = None
-        for market in markets:
-            if market['code'] == 'USDT_IRT':
-                usdt_irt = float(market['price'].replace(',', '')) if market['price'] else None
-                break
-        
-        for market in markets:
-            code = market['code']
-            price = market['price'].replace(',', '') if market['price'] else None
-            
-            for crypto in crypto_data:
-                if code == f"{crypto}_IRT":
-                    crypto_data[crypto]['price_irt'] = float(price) if price else None
-                elif code == f"{crypto}_USDT":
-                    crypto_data[crypto]['price_usdt'] = float(price) if price else None
-        
-        return crypto_data, usdt_irt
-    else:
-        print(f"Error {response.status_code}: {response.text}")
-        return None, None
-
-
 def get_currency_prices():
     url = 'https://api.majidapi.ir/price/bonbast?token=' + majid_api_key
-    response = requests.get(url)
-    
-    if response.status_code == 200:
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
         data = response.json()
         currencies = data['result']['currencies']
         
         currency_data = {}
-        
         for item in currencies:
             if item['code'] in ['USD', 'EUR', 'AUD', 'CAD', 'TRY', 'RUB', 'AED', 'KWD']:
                 currency_data[item['code']] = int(item['sell'].replace(',', ''))
@@ -178,97 +159,84 @@ def get_currency_prices():
         aed = currency_data.get('AED', 0)
         kwd = currency_data.get('KWD', 0)
         
+        logger.info("Successfully fetched currency prices")
         return usd, euro, aud, cad, tryy, rub, aed, kwd
-    else:
-        print(f"Error {response.status_code}: {response.text}")
+    except requests.RequestException as e:
+        logger.error(f"Error fetching currency prices: {e}")
         return None, None, None, None, None, None, None, None
-
-def send_crypto_price(user_id):
-    crypto_data, usdt_irt = get_crypto_prices()
-    iran_timezone = pytz.timezone('Asia/Tehran')
-    g_date = datetime.datetime.now(iran_timezone)
-    g_day = g_date.strftime("%A")
-    j_date = jdatetime.datetime.fromgregorian(datetime=g_date)
-    j_day = weekdays_fa[g_day]
-    j_month = persian_months[j_date.month]
-    j_day_num = j_date.day
-    j_year = j_date.year
-    iran_hour = g_date.strftime("%H")
-    iran_minute = g_date.strftime("%M")
-    
-    if crypto_data is None or usdt_irt is None:
-        message = "❌ خطا در دریافت قیمت ارزهای دیجیتال"
-    else:
-        def format_price_irt(price_usdt, usdt_irt):
-            if price_usdt and usdt_irt:
-                return format_number(int(price_usdt * usdt_irt))
-            return "ناموجود"
-        
-        def format_change(change):
-            if change is not None:
-                sign = "+" if change >= 0 else ""
-                return f"{sign}{change:.2f}%"
-            return "ناموجود"
-        
-        message = f"""
-📅 تاریخ: {j_day_num} {j_month} {j_year}
-☀️| {j_day}
-🕰 ساعت: {iran_hour}:{iran_minute} (به وقت ایران)
-
-💸 قیمت ارزهای دیجیتال:
-
-📈 بیت‌کوین (BTC):
-💵 {format_price_irt(crypto_data['BTC']['price_usdt'], usdt_irt)} تومان
-💲 {format_number(crypto_data['BTC']['price_usdt'])} دلار
-📊 تغییر 24 ساعته: {format_change(crypto_data['BTC']['change'])}
-
-📈 اتریوم (ETH):
-💵 {format_price_irt(crypto_data['ETH']['price_usdt'], usdt_irt)} تومان
-💲 {format_number(crypto_data['ETH']['price_usdt'])} دلار
-📊 تغییر 24 ساعته: {format_change(crypto_data['ETH']['change'])}
-
-📈 تون‌کوین (TON):
-💵 {format_price_irt(crypto_data['TON']['price_usdt'], usdt_irt)} تومان
-💲 {format_number(crypto_data['TON']['price_usdt'])} دلار
-📊 تغییر 24 ساعته: {format_change(crypto_data['TON']['change'])}
-
-📈 نات‌کوین (NOT):
-💵 {format_price_irt(crypto_data['NOT']['price_usdt'], usdt_irt)} تومان
-💲 {format_number_not(crypto_data['NOT']['price_usdt'])} دلار
-📊 تغییر 24 ساعته: {format_change(crypto_data['NOT']['change'])}
-
-📈 ترون (TRX):
-💵 {format_price_irt(crypto_data['TRX']['price_usdt'], usdt_irt)} تومان
-💲 {format_number_not(crypto_data['TRX']['price_usdt'])} دلار
-📊 تغییر 24 ساعته: {format_change(crypto_data['TRX']['change'])}
-
-ساخته شده با ❤️ توسط ReZNuM
-"""
-    
-    bot.send_message(user_id, message, parse_mode="Markdown")
 
 def get_gold_prices():
     url = 'https://api.majidapi.ir/price/bonbast?token=' + majid_api_key
-    response = requests.get(url)
-    
-    if response.status_code == 200:
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
         data = response.json()
         
-        gold_18ayar = data['result']['gold']['gram']  
+        try:
+            gold_18ayar = data['result']['gold']['gram']
+        except (KeyError, TypeError):
+            logger.error("Key 'gram' not found in gold data")
+            gold_18ayar = None
         
-        coins = {item['coin']: item['sell'] for item in data['result']['coins']}
+        try:
+            coins = {item['coin']: item['sell'] for item in data['result']['coins']}
+            gold_bahar = coins.get('Emami', None)
+            gold_nim = coins.get('&#189; Azadi', None)
+            gold_rob = coins.get('&#188; Azadi', None)
+            gold_gerami = coins.get('Gerami', None)
+            
+            if any(x is None for x in [gold_bahar, gold_nim, gold_rob, gold_gerami]):
+                logger.warning(f"Some coins not found in API data: {coins}")
+        except (KeyError, TypeError):
+            logger.error("Key 'coins' or 'sell' not found in data")
+            gold_bahar = gold_nim = gold_rob = gold_gerami = None
         
-        gold_bahar = coins['Emami'] 
-        gold_nim = coins['&#189; Azadi'] 
-        gold_rob = coins['&#188; Azadi'] 
-        gold_gerami = coins['Gerami'] 
-        
+        logger.info("Successfully fetched gold prices")
         return gold_18ayar, gold_bahar, gold_nim, gold_rob, gold_gerami
-    else:
-        print(f"Error {response.status_code}: {response.text}")
+    except requests.RequestException as e:
+        logger.error(f"Error fetching gold prices: {e}")
         return None, None, None, None, None
 
+def get_crypto_prices():
+    url = 'https://api.majidapi.ir/price/bitpin?token=' + majid_api_key
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json()
+        markets = data['result']
+        
+        crypto_data = {
+            'BTC': {'price_irt': None, 'price_usdt': None},
+            'ETH': {'price_irt': None, 'price_usdt': None},
+            'TON': {'price_irt': None, 'price_usdt': None},
+            'NOT': {'price_irt': None, 'price_usdt': None},
+            'TRX': {'price_irt': None, 'price_usdt': None}
+        }
+        
+        usdt_irt = None
+        for market in markets:
+            if market['code'] == 'USDT_IRT':
+                usdt_irt = float(market['price'].replace(',', '')) if market['price'] else None
+                break
+        
+        for market in markets:
+            code = market['code']
+            price = market['price'].replace(',', '') if market['price'] else None
+           
+            for crypto in crypto_data:
+                if code == f"{crypto}_IRT":
+                    crypto_data[crypto]['price_irt'] = float(price) if price else None
+                elif code == f"{crypto}_USDT":
+                    crypto_data[crypto]['price_usdt'] = float(price) if price else None
+        
+        logger.info("Successfully fetched crypto prices")
+        return crypto_data, usdt_irt
+    except requests.RequestException as e:
+        logger.error(f"Error fetching crypto prices: {e}")
+        return None, None
+
 def send_currency_price(user_id):
+    logger.info(f"Sending currency prices to user {user_id}")
     usd, euro, aud, cad, tryy, rub, aed, kwd = get_currency_prices()
     iran_timezone = pytz.timezone('Asia/Tehran')
     g_date = datetime.datetime.now(iran_timezone)
@@ -297,27 +265,21 @@ def send_currency_price(user_id):
 💵 نرخ ها :
 
 💲 | دلار آمریکا: {format_number(usd)} تومان
-
 💷 | دلار استرالیا: {format_number(aud)} تومان
-
 💶 | یورو : {format_number(euro)} تومان
-
 💸 | دلار کانادا : {format_number(cad)} تومان
-
 💷 | درهم امارات   : {format_number(aed)} تومان
-
 💴 | لیر ترکیه : {format_number(tryy)} تومان
-
 💰 | روبل روسیه   : {format_number(rub)} تومان
-
 💶 | دینار کویت    : {format_number(kwd)} تومان
 
 ساخته شده با ❤️ توسط ReZNuM
     """
     bot.send_message(user_id, message, parse_mode="Markdown")
-
+    logger.info(f"Currency prices sent to user {user_id}")
 
 def send_gold_price(user_id):
+    logger.info(f"Sending gold prices to user {user_id}")
     gold_18ayar, gold_bahar, gold_nim, gold_rob, gold_gerami = get_gold_prices()
     iran_timezone = pytz.timezone('Asia/Tehran')
     g_date = datetime.datetime.now(iran_timezone)
@@ -345,43 +307,94 @@ def send_gold_price(user_id):
 💵 قیمت‌ها:
 
 🪙 | طلای ۱۸ عیار: {format_number(gold_18ayar)} تومان
-
 🥇 | سکه تمام بهار: {format_number(gold_bahar)} تومان
-
 🌓 | نیم سکه: {format_number(gold_nim)} تومان
-
 🌜 | ربع سکه: {format_number(gold_rob)} تومان
-
 🪙 | طلای گرمی : {format_number(gold_gerami)} تومان
 
 ساخته شده با ❤️ توسط ReZNuM
     """
     bot.send_message(user_id, message, parse_mode="Markdown")
+    logger.info(f"Gold prices sent to user {user_id}")
 
-
-def send_price(user_id):
-    usd, euro, aud, cad, tryy, rub, aed, kwd = get_currency_prices()
-    gold_18ayar, gold_bahar, gold_nim, gold_rob, gold_gerami = get_gold_prices()
+def send_crypto_price(user_id):
+    logger.info(f"Sending crypto prices to user {user_id}")
     crypto_data, usdt_irt = get_crypto_prices()
-    
     iran_timezone = pytz.timezone('Asia/Tehran')
-    g_date = datetime.datetime.now(iran_timezone)  
+    g_date = datetime.datetime.now(iran_timezone)
     g_day = g_date.strftime("%A")
-    g_month = g_date.strftime("%B")
-    g_day_num = g_date.strftime("%d")
-    g_year = g_date.strftime("%Y")
-    
     j_date = jdatetime.datetime.fromgregorian(datetime=g_date)
     j_day = weekdays_fa[g_day]
     j_month = persian_months[j_date.month]
     j_day_num = j_date.day
     j_year = j_date.year
+    iran_hour = g_date.strftime("%H")
+    iran_minute = g_date.strftime("%M")
     
+    if crypto_data is None or usdt_irt is None:
+        message = "❌ خطا در دریافت قیمت ارزهای دیجیتال"
+        logger.error("Failed to fetch crypto prices")
+    else:
+        def format_price_irt(price_usdt, usdt_irt):
+            if price_usdt and usdt_irt:
+                return format_number(int(price_usdt * usdt_irt))
+            return "ناموجود"
+        
+       
+        message = f"""
+📅 تاریخ: {j_day_num} {j_month} {j_year}
+☀️| {j_day}
+🕰 ساعت: {iran_hour}:{iran_minute} (به وقت ایران)
+
+💸 قیمت ارزهای دیجیتال:
+
+📈 بیت‌کوین (BTC):
+💵 {format_price_irt(crypto_data['BTC']['price_usdt'], usdt_irt)} تومان
+💲 {format_number(crypto_data['BTC']['price_usdt'])} دلار
+
+📈 اتریوم (ETH):
+💵 {format_price_irt(crypto_data['ETH']['price_usdt'], usdt_irt)} تومان
+💲 {format_number(crypto_data['ETH']['price_usdt'])} دلار
+
+📈 تون‌کوین (TON):
+💵 {format_price_irt(crypto_data['TON']['price_usdt'], usdt_irt)} تومان
+💲 {format_number_ashar(crypto_data['TON']['price_usdt'])} دلار
+
+📈 نات‌کوین (NOT):
+💵 {format_price_irt(crypto_data['NOT']['price_usdt'], usdt_irt)} تومان
+💲 {format_number_not(crypto_data['NOT']['price_usdt'])} دلار
+
+📈 ترون (TRX):
+💵 {format_price_irt(crypto_data['TRX']['price_usdt'], usdt_irt)} تومان
+💲 {format_number_not(crypto_data['TRX']['price_usdt'])} دلار
+
+ساخته شده با ❤️ توسط ReZNuM
+"""
+    
+    bot.send_message(user_id, message, parse_mode="Markdown")
+    logger.info(f"Crypto prices sent to user {user_id}")
+
+def send_price(user_id):
+    logger.info(f"Sending important prices to user {user_id}")
+    usd, euro, aud, cad, tryy, rub, aed, kwd = get_currency_prices()
+    gold_18ayar, gold_bahar, gold_nim, gold_rob, gold_gerami = get_gold_prices()
+    crypto_data, usdt_irt = get_crypto_prices()
+    
+    iran_timezone = pytz.timezone('Asia/Tehran')
+    g_date = datetime.datetime.now(iran_timezone)
+    g_day = g_date.strftime("%A")
+    g_month = g_date.strftime("%B")
+    g_day_num = g_date.strftime("%d")
+    g_year = g_date.strftime("%Y")
+    j_date = jdatetime.datetime.fromgregorian(datetime=g_date)
+    j_day = weekdays_fa[g_day]
+    j_month = persian_months[j_date.month]
+    j_day_num = j_date.day
+    j_year = j_date.year
     islamic_date = convertdate.islamic.from_gregorian(g_date.year, g_date.month, g_date.day)
     i_day = islamic_date[2]
     i_month = islamic_months[islamic_date[1]]
     i_year = islamic_date[0]
-    
     iran_hour = g_date.strftime("%H")
     iran_minute = g_date.strftime("%M")
     
@@ -394,7 +407,7 @@ def send_price(user_id):
 📅 تاریخ‌ها:
 ☀️| روز هفته: {j_day} ({g_day})
 🌞| تاریخ شمسی: {j_day_num} {j_month} {j_year}
-⛪| تاریخ میلادی:  {g_month}  {g_day_num} {g_year}
+⛪| تاریخ میلادی: {g_month} {g_day_num} {g_year}
 🐫| تاریخ قمری: {i_day} {i_month} {i_year}
 
 🕰 ساعت: {iran_hour}:{iran_minute} (به وقت ایران)
@@ -418,16 +431,20 @@ def send_price(user_id):
 📚 منبع: {daily_hadith['source']}
 
 ساخته شده با ❤️ توسط ReZNuM
-    """
+"""
     bot.send_message(user_id, message, parse_mode="Markdown")
+    logger.info(f"Important prices sent to user {user_id}")
 
 @bot.message_handler(commands=['start'])
 def start(message):
+    if not is_message_valid(message):
+        return
     user_id = message.chat.id
+    logger.info(f"Start command received from user {user_id}")
     bot.send_message(user_id, """
 سلام!🎊 به ربات اعلام نرخ خوش اومدی 😊
 این ربات برای نمایش نرخ ارز، طلا و سکه و ارزهای دیجیتال ساخته شده.
-.برای شروع ربات روی  /start کلیک کن
+.برای شروع ربات روی /start کلیک کن
 .در ضمن اگه به راهنمایی بیشتری نیاز داری روی /help کلیک کن
 
 امیدوارم لحظات خوبی داشته باشی! 🌟
@@ -438,56 +455,80 @@ def start(message):
     btn_gold_coin = telebot.types.KeyboardButton("نرخ طلا و سکه 💰")
     btn_crypto = telebot.types.KeyboardButton("قیمت ارز دیجیتال 💸")
     btn_imp = telebot.types.KeyboardButton("قیمت های مهم ❗")
-
     markup.add(btn_currency, btn_gold_coin, btn_crypto, btn_imp)
     bot.send_message(user_id, "در ضمن میتونی با کلیک کردن روی گزینه های زیر ، نرخ های موردنظرت رو ببینی", reply_markup=markup)
+    logger.info(f"Keyboard menu sent to user {user_id}")
 
 @bot.message_handler(func=lambda message: message.text == "نرخ طلا و سکه 💰")
 def gold_nerkh(message):
+    if not is_message_valid(message):
+        return
     user_id = message.chat.id
+    logger.info(f"Gold price command received from user {user_id}")
     send_gold_price(user_id)
 
-
-@bot.message_handler(func=lambda message: message.text =="قیمت های مهم ❗")
+@bot.message_handler(func=lambda message: message.text == "قیمت های مهم ❗")
 def crypto_price(message):
+    if not is_message_valid(message):
+        return
     user_id = message.chat.id
+    logger.info(f"Important prices command received from user {user_id}")
     send_price(user_id)
-
 
 @bot.message_handler(func=lambda message: message.text == "نرخ ارز 💲")
 def currency_nerkh(message):
+    if not is_message_valid(message):
+        return
     user_id = message.chat.id
+    logger.info(f"Currency price command received from user {user_id}")
     send_currency_price(user_id)
 
 @bot.message_handler(func=lambda message: message.text == "قیمت ارز دیجیتال 💸")
 def crypto_nerkh(message):
+    if not is_message_valid(message):
+        return
     user_id = message.chat.id
+    logger.info(f"Crypto price command received from user {user_id}")
     send_crypto_price(user_id)
-  
+
 @bot.message_handler(commands=['stats'])
 def stats(message):
+    if not is_message_valid(message):
+        return
     user_id = message.chat.id
+    logger.info(f"Stats command received from user {user_id}")
     send_price(user_id)
 
 @bot.message_handler(commands=['alive'])
 def alive(message):
+    user_id = message.chat.id
+    logger.info(f"Alive command received from user {user_id}")
     chat_type = message.chat.type
     if chat_type in ["private", "group", "supergroup"]:
-        bot.send_message(message.chat.id, "I'm alive and kicking! 🤖 RezStatsBot is here!")
+        bot.send_message(user_id, "I'm alive and kicking! 🤖 RezStatsBot is here!")
+        logger.info(f"Alive response sent to user {user_id}")
+
 @bot.message_handler(commands=['help'])
 def help(message):
+    if not is_message_valid(message):
+        return
     user_id = message.chat.id
+    logger.info(f"Help command received from user {user_id}")
     bot.send_message(user_id, """
 به بخش راهنمای ربات خوش اومدی 💖
 
 دستورات موجود:
 - /start: شروع ربات
-- /stats: دریافت قیمت های مهم 
+- /stats: دریافت قیمت های مهم
 
 برای دیدن قیمت‌ها، کافیه دستور /stats رو وارد کنی.
     """, parse_mode="Markdown")
+    logger.info(f"Help response sent to user {user_id}")
 
 if __name__ == '__main__':
-    bot.polling()
-
-
+    logger.info("Starting RezStatsBot")
+    try:
+        bot.polling()
+    except Exception as e:
+        logger.error(f"Bot stopped due to error: {e}")
+        raise
