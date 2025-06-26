@@ -28,7 +28,7 @@ logging.Formatter.converter = lambda *args: datetime.datetime.now(pytz.timezone(
 # The Variable Inforamtions 
 TOKEN = "Your Bot Token"
 bot = telebot.TeleBot(TOKEN)
-majid_api_key = '3jeourt8ixotegn:YqruOSVrFEKRki4sFZOw'
+majid_api_key = 'Get it from @MajidAPI'
 blocked_users = set()
 ADMIN_USER_IDS = [123456789]  # Replace with actual admin user IDs
 USERS_FILE = "users.json"
