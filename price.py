@@ -84,11 +84,13 @@ def format_number_not(number):
     return "{:,.5f}".format(number).replace(",", ",")
 
 def get_daily_hadith():
+    """انتخاب یک حدیث تصادفی برای هر روز"""
     try:
         with open('hadith.json', 'r', encoding='utf-8') as file:
             hadiths = json.load(file)
         
-        j_date = jdatetime.date.today()
+        iran_timezone = pytz.timezone('Asia/Tehran')
+        j_date = jdatetime.datetime.now(iran_timezone).date()
         seed = int(f"{j_date.year}{j_date.month:02d}{j_date.day:02d}")
         random.seed(seed)
         
@@ -96,18 +98,18 @@ def get_daily_hadith():
         
         return {
             'farsi': selected_hadith.get('farsi', 'حدیث یافت نشد'),
-            'naghlfa': selected_hadith.get('naghlfa', 'نقل‌کننده مشخص نیست')[:-2],
+            'naghlfa': selected_hadith.get('naghlfa', 'نقل‌کننده مشخص نیست').rstrip(':').strip(),
             'source': selected_hadith.get('source', 'منبع مشخص نیست')
         }
     except FileNotFoundError:
-        print("hadith.json file not found.")
+        print("خطا: فایل hadith.json یافت نشد")
         return {
             'farsi': 'حدیث یافت نشد',
             'naghlfa': 'نقل‌کننده مشخص نیست',
             'source': 'منبع مشخص نیست'
         }
     except Exception as e:
-        print(f"Error in reading Hadith: {e}")
+        print(f"خطا در خواندن حدیث: {e}")
         return {
             'farsi': 'حدیث یافت نشد',
             'naghlfa': 'نقل‌کننده مشخص نیست',
@@ -183,17 +185,16 @@ def get_currency_prices():
 
 def send_crypto_price(user_id):
     crypto_data, usdt_irt = get_crypto_prices()
-    g_date = datetime.datetime.now()
+    iran_timezone = pytz.timezone('Asia/Tehran')
+    g_date = datetime.datetime.now(iran_timezone)
     g_day = g_date.strftime("%A")
-    j_date = jdatetime.date.today()
+    j_date = jdatetime.datetime.fromgregorian(datetime=g_date)
     j_day = weekdays_fa[g_day]
     j_month = persian_months[j_date.month]
     j_day_num = j_date.day
     j_year = j_date.year
-    iran_timezone = pytz.timezone('Asia/Tehran')
-    iran_time = g_date.astimezone(iran_timezone)
-    iran_hour = iran_time.strftime("%H")
-    iran_minute = iran_time.strftime("%M")
+    iran_hour = g_date.strftime("%H")
+    iran_minute = g_date.strftime("%M")
     
     if crypto_data is None or usdt_irt is None:
         message = "❌ خطا در دریافت قیمت ارزهای دیجیتال"
@@ -219,22 +220,27 @@ def send_crypto_price(user_id):
 📈 بیت‌کوین (BTC):
 💵 {format_price_irt(crypto_data['BTC']['price_usdt'], usdt_irt)} تومان
 💲 {format_number(crypto_data['BTC']['price_usdt'])} دلار
+📊 تغییر 24 ساعته: {format_change(crypto_data['BTC']['change'])}
 
 📈 اتریوم (ETH):
 💵 {format_price_irt(crypto_data['ETH']['price_usdt'], usdt_irt)} تومان
 💲 {format_number(crypto_data['ETH']['price_usdt'])} دلار
+📊 تغییر 24 ساعته: {format_change(crypto_data['ETH']['change'])}
 
 📈 تون‌کوین (TON):
 💵 {format_price_irt(crypto_data['TON']['price_usdt'], usdt_irt)} تومان
-💲 {format_number_ashar(crypto_data['TON']['price_usdt'])} دلار
+💲 {format_number(crypto_data['TON']['price_usdt'])} دلار
+📊 تغییر 24 ساعته: {format_change(crypto_data['TON']['change'])}
 
 📈 نات‌کوین (NOT):
 💵 {format_price_irt(crypto_data['NOT']['price_usdt'], usdt_irt)} تومان
 💲 {format_number_not(crypto_data['NOT']['price_usdt'])} دلار
+📊 تغییر 24 ساعته: {format_change(crypto_data['NOT']['change'])}
 
 📈 ترون (TRX):
 💵 {format_price_irt(crypto_data['TRX']['price_usdt'], usdt_irt)} تومان
 💲 {format_number_not(crypto_data['TRX']['price_usdt'])} دلار
+📊 تغییر 24 ساعته: {format_change(crypto_data['TRX']['change'])}
 
 ساخته شده با ❤️ توسط ReZNuM
 """
@@ -263,49 +269,48 @@ def get_gold_prices():
         return None, None, None, None, None
 
 def send_currency_price(user_id):
-    usd, euro, aud, cad, tryy , rub, aed, kwd = get_currency_prices()
-    g_date = datetime.datetime.now()
+    usd, euro, aud, cad, tryy, rub, aed, kwd = get_currency_prices()
+    iran_timezone = pytz.timezone('Asia/Tehran')
+    g_date = datetime.datetime.now(iran_timezone)
     g_day = g_date.strftime("%A")
     g_month = g_date.strftime("%B")
     g_day_num = g_date.strftime("%d")
     g_year = g_date.strftime("%Y")
-    j_date = jdatetime.date.today()
-    j_day = weekdays_fa[g_day]  
-    j_month = persian_months[j_date.month] 
+    j_date = jdatetime.datetime.fromgregorian(datetime=g_date)
+    j_day = weekdays_fa[g_day]
+    j_month = persian_months[j_date.month]
     j_day_num = j_date.day
     j_year = j_date.year
     islamic_date = convertdate.islamic.from_gregorian(g_date.year, g_date.month, g_date.day)
     i_day = islamic_date[2]
     i_month = islamic_months[islamic_date[1]]
     i_year = islamic_date[0]
-    iran_timezone = pytz.timezone('Asia/Tehran')
-    iran_time = g_date.astimezone(iran_timezone)
-    iran_hour = iran_time.strftime("%H")
-    iran_minute = iran_time.strftime("%M")
+    iran_hour = g_date.strftime("%H")
+    iran_minute = g_date.strftime("%M")
 
     message = f"""
 📅 تاریخ‌:
 ☀️| {j_day}
-🌞| {j_day_num} {j_month} {j_year}  
+🌞| {j_day_num} {j_month} {j_year}
 🕰 ساعت: {iran_hour}:{iran_minute} (به وقت ایران)
 
 💵 نرخ ها :
 
-💲 | دلار آمریکا: {format_number(usd)} تومان 
+💲 | دلار آمریکا: {format_number(usd)} تومان
 
-💷 | دلار استرالیا: {format_number(aud)} تومان 
+💷 | دلار استرالیا: {format_number(aud)} تومان
 
-💶 | یورو : {format_number(euro)} تومان  
+💶 | یورو : {format_number(euro)} تومان
 
-💸 | دلار کانادا : {format_number(cad)} تومان  
+💸 | دلار کانادا : {format_number(cad)} تومان
 
-💷 | درهم امارات   : {format_number(aed)} تومان  
+💷 | درهم امارات   : {format_number(aed)} تومان
 
-💴 | لیر ترکیه : {format_number(tryy)} تومان  
+💴 | لیر ترکیه : {format_number(tryy)} تومان
 
-💰 | روبل روسیه   : {format_number(rub)} تومان  
+💰 | روبل روسیه   : {format_number(rub)} تومان
 
-💶 | دینار کویت    : {format_number(kwd)} تومان  
+💶 | دینار کویت    : {format_number(kwd)} تومان
 
 ساخته شده با ❤️ توسط ReZNuM
     """
@@ -314,41 +319,40 @@ def send_currency_price(user_id):
 
 def send_gold_price(user_id):
     gold_18ayar, gold_bahar, gold_nim, gold_rob, gold_gerami = get_gold_prices()
-    g_date = datetime.datetime.now()
+    iran_timezone = pytz.timezone('Asia/Tehran')
+    g_date = datetime.datetime.now(iran_timezone)
     g_day = g_date.strftime("%A")
     g_month = g_date.strftime("%B")
     g_day_num = g_date.strftime("%d")
     g_year = g_date.strftime("%Y")
-    j_date = jdatetime.date.today()
-    j_day = weekdays_fa[g_day]  
-    j_month = persian_months[j_date.month] 
+    j_date = jdatetime.datetime.fromgregorian(datetime=g_date)
+    j_day = weekdays_fa[g_day]
+    j_month = persian_months[j_date.month]
     j_day_num = j_date.day
     j_year = j_date.year
     islamic_date = convertdate.islamic.from_gregorian(g_date.year, g_date.month, g_date.day)
     i_day = islamic_date[2]
     i_month = islamic_months[islamic_date[1]]
     i_year = islamic_date[0]
-    iran_timezone = pytz.timezone('Asia/Tehran')
-    iran_time = g_date.astimezone(iran_timezone)
-    iran_hour = iran_time.strftime("%H")
-    iran_minute = iran_time.strftime("%M")
+    iran_hour = g_date.strftime("%H")
+    iran_minute = g_date.strftime("%M")
 
     message = f"""
-📅 تاریخ‌:  {j_day_num} {j_month} {j_year}  
+📅 تاریخ‌:  {j_day_num} {j_month} {j_year}
 ☀️| {j_day}
 🕰 ساعت: {iran_hour}:{iran_minute} (به وقت ایران)
 
 💵 قیمت‌ها:
 
-🪙 | طلای ۱۸ عیار: {format_number(gold_18ayar)} تومان 
+🪙 | طلای ۱۸ عیار: {format_number(gold_18ayar)} تومان
 
-🥇 | سکه تمام بهار: {format_number(gold_bahar)} تومان 
+🥇 | سکه تمام بهار: {format_number(gold_bahar)} تومان
 
-🌓 | نیم سکه: {format_number(gold_nim)} تومان  
+🌓 | نیم سکه: {format_number(gold_nim)} تومان
 
-🌜 | ربع سکه: {format_number(gold_rob)} تومان  
+🌜 | ربع سکه: {format_number(gold_rob)} تومان
 
-🪙 | طلای گرمی : {format_number(gold_gerami)} تومان  
+🪙 | طلای گرمی : {format_number(gold_gerami)} تومان
 
 ساخته شده با ❤️ توسط ReZNuM
     """
