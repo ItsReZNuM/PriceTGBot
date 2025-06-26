@@ -19,10 +19,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 logging.Formatter.converter = lambda *args: datetime.datetime.now(pytz.timezone('Asia/Tehran')).timetuple()
 
-TOKEN = "Your Bot Token Here"
+TOKEN = "8079951314:AAE7CE3yMmkGHHwKuxTavqkfoYBxTYlx0ys"
 bot = telebot.TeleBot(TOKEN)
 
-majid_api_key = 'Take it From @MajidAPITokenBot in Telegram'
+majid_api_key = '3jeourt8ixotegn:YqruOSVrFEKRki4sFZOw'
 
 commands = [
     telebot.types.BotCommand("start", "شروع ربات"),
@@ -104,6 +104,18 @@ def format_number_ashar(number):
 
 def format_number_not(number):
     return "{:,.5f}".format(number).replace(",", ",")
+
+def format_number_decimal(number):
+    if number is None:
+        return "ناموجود"
+    if isinstance(number, str):
+        try:
+            number = float(number.replace(',', ''))
+        except ValueError:
+            return "ناموجود"
+    if isinstance(number, (int, float)):
+        return "{:,.3f}".format(number).replace(",", ",")
+    return str(number)
 
 def get_daily_hadith():
     try:
@@ -197,7 +209,7 @@ def get_gold_prices():
         logger.error(f"Error fetching gold prices: {e}")
         return None, None, None, None, None
 
-def get_crypto_prices():
+def get_crypto_prices(symbols=None):
     url = 'https://api.majidapi.ir/price/bitpin?token=' + majid_api_key
     try:
         response = requests.get(url)
@@ -205,13 +217,10 @@ def get_crypto_prices():
         data = response.json()
         markets = data['result']
         
-        crypto_data = {
-            'BTC': {'price_irt': None, 'price_usdt': None},
-            'ETH': {'price_irt': None, 'price_usdt': None},
-            'TON': {'price_irt': None, 'price_usdt': None},
-            'NOT': {'price_irt': None, 'price_usdt': None},
-            'TRX': {'price_irt': None, 'price_usdt': None}
-        }
+        if symbols is None:
+            symbols = ['BTC', 'ETH', 'TON', 'NOT', 'TRX']
+        
+        crypto_data = {symbol: {'price_irt': None, 'price_usdt': None} for symbol in symbols}
         
         usdt_irt = None
         for market in markets:
@@ -222,14 +231,14 @@ def get_crypto_prices():
         for market in markets:
             code = market['code']
             price = market['price'].replace(',', '') if market['price'] else None
-           
-            for crypto in crypto_data:
-                if code == f"{crypto}_IRT":
-                    crypto_data[crypto]['price_irt'] = float(price) if price else None
-                elif code == f"{crypto}_USDT":
-                    crypto_data[crypto]['price_usdt'] = float(price) if price else None
+            
+            for symbol in symbols:
+                if code == f"{symbol}_IRT":
+                    crypto_data[symbol]['price_irt'] = float(price) if price else None
+                elif code == f"{symbol}_USDT":
+                    crypto_data[symbol]['price_usdt'] = float(price) if price else None
         
-        logger.info("Successfully fetched crypto prices")
+        logger.info(f"Successfully fetched crypto prices for {symbols}")
         return crypto_data, usdt_irt
     except requests.RequestException as e:
         logger.error(f"Error fetching crypto prices: {e}")
@@ -340,7 +349,12 @@ def send_crypto_price(user_id):
                 return format_number(int(price_usdt * usdt_irt))
             return "ناموجود"
         
-       
+        def format_change(change):
+            if change is not None:
+                sign = "+" if change >= 0 else ""
+                return f"{sign}{change:.2f}%"
+            return "ناموجود"
+        
         message = f"""
 📅 تاریخ: {j_day_num} {j_month} {j_year}
 ☀️| {j_day}
@@ -367,6 +381,9 @@ def send_crypto_price(user_id):
 📈 ترون (TRX):
 💵 {format_price_irt(crypto_data['TRX']['price_usdt'], usdt_irt)} تومان
 💲 {format_number_not(crypto_data['TRX']['price_usdt'])} دلار
+
+جهت دریافت قیمت ارزهای دیگر، نماد ارزها را وارد کنید (مثال: XRP یا NOT,XRP,BTC).
+جهت برگشتن به منوی اصلی دستور /start را وارد کنید.
 
 ساخته شده با ❤️ توسط ReZNuM
 """
@@ -524,6 +541,67 @@ def help(message):
 برای دیدن قیمت‌ها، کافیه دستور /stats رو وارد کنی.
     """, parse_mode="Markdown")
     logger.info(f"Help response sent to user {user_id}")
+
+@bot.message_handler(content_types=['text'])
+def handle_crypto_symbols(message):
+    if not is_message_valid(message):
+        return
+    user_id = message.chat.id
+    logger.info(f"Crypto symbols received from user {user_id}: {message.text}")
+    
+    # جدا کردن نمادها
+    symbols = [s.strip().upper() for s in message.text.split(',')]
+    crypto_data, usdt_irt = get_crypto_prices(symbols)
+    
+    iran_timezone = pytz.timezone('Asia/Tehran')
+    g_date = datetime.datetime.now(iran_timezone)
+    g_day = g_date.strftime("%A")
+    j_date = jdatetime.datetime.fromgregorian(datetime=g_date)
+    j_day = weekdays_fa[g_day]
+    j_month = persian_months[j_date.month]
+    j_day_num = j_date.day
+    j_year = j_date.year
+    iran_hour = g_date.strftime("%H")
+    iran_minute = g_date.strftime("%M")
+    
+    if crypto_data is None or usdt_irt is None:
+        message_text = "❌ خطا در دریافت قیمت ارزهای دیجیتال"
+        logger.error(f"Failed to fetch crypto prices for symbols: {symbols}")
+    else:
+        def format_price_irt(price_usdt, usdt_irt):
+            if price_usdt and usdt_irt:
+                return format_number(int(price_usdt * usdt_irt))
+            return "ناموجود"
+        
+        message_text = f"""
+📅 تاریخ: {j_day_num} {j_month} {j_year}
+☀️| {j_day}
+🕰 ساعت: {iran_hour}:{iran_minute} (به وقت ایران)
+"""
+        for symbol in symbols:
+            if symbol in crypto_data:
+                message_text += f"""
+📈 {symbol}:
+💵 {format_price_irt(crypto_data[symbol]['price_usdt'], usdt_irt)} تومان
+💲 {format_number_decimal(crypto_data[symbol]['price_usdt'])} دلار
+"""
+            else:
+                message_text += f"""
+📈 {symbol}:
+💵 ناموجود
+💲 ناموجود
+"""
+                logger.warning(f"Symbol {symbol} not found in API data")
+        
+        message_text += """
+جهت دریافت قیمت ارزهای دیگر، نماد ارزها را وارد کنید (مثال: XRP یا NOT,XRP,BTX).
+جهت برگشتن به منوی اصلی دستور /start را وارد کنید.
+
+ساخته شده با ❤️ توسط ReZNuM
+"""
+    
+    bot.send_message(user_id, message_text, parse_mode="Markdown")
+    logger.info(f"Custom crypto prices sent to user {user_id} for symbols: {symbols}")
 
 if __name__ == '__main__':
     logger.info("Starting RezStatsBot")
