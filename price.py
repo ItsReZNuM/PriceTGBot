@@ -27,16 +27,18 @@ logger = logging.getLogger(__name__)
 logging.Formatter.converter = lambda *args: datetime.datetime.now(pytz.timezone('Asia/Tehran')).timetuple()
 
 # The Variable Inforamtions 
-TOKEN = "Your Bot Token"
+TOKEN = "YOUR_BOT_TOKEN"
 bot = telebot.TeleBot(TOKEN)
-majid_api_key = 'Get it from @MajidAPI'
+majid_api_key = 'Take It From @MajidAPI'
 blocked_users = set()
 message_tracker = {}
-ADMIN_USER_IDS = [123456789]  # Replace with actual admin user IDs
+ADMIN_USER_IDS = [123455676]  # Replace with actual admin user IDs
 USERS_FILE = "users.json"
 
 # Function For Save users in a JSON File for later if you want to send the users that have started the bot
 def save_user(user_id, username):
+    if user_id in ADMIN_USER_IDS:
+        return
     users = []
     if os.path.exists(USERS_FILE):
         try:
@@ -530,9 +532,9 @@ def start(message):
         return
     user_id = message.chat.id
     username = message.from_user.username
+    save_user(user_id, username)
     logger.info(f"Start command received from user {user_id}")
 
-    save_user(user_id, username)
 
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     btn_currency = telebot.types.KeyboardButton("نرخ ارز 💲")
